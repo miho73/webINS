@@ -1,0 +1,12 @@
+interface ViteTypeOptions {
+    strictImportMetaEnv: unknown
+}
+
+interface ImportMetaEnv {
+    readonly VITE_APP_VERSION: string
+    readonly VITE_ROOT_DOMAIN: string
+}
+
+interface ImportMeta {
+    readonly env: ImportMetaEnv
+}
