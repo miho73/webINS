@@ -1,10 +1,10 @@
 import {useState} from "react";
 import {motion} from "framer-motion";
-import {Activity, Cable, Sigma} from "lucide-react";
+import {Cable, NavigationIcon, Sigma} from "lucide-react";
 
 import {Integral} from "@/pages/integral/Integral.tsx";
 import {Debug} from "@/pages/debug/Debug.tsx";
-import {VisualizerGraph} from "@/pages/visualizer/VisualizerGraph";
+import {Ins} from "@/pages/visualizer/Ins.tsx";
 import ConnectionIndex from "@/pages/connection/ConnectionIndex.tsx";
 import "./style/univ.css";
 import * as React from "react";
@@ -23,10 +23,10 @@ const tabs = [
         icon: Sigma,
     },
     {
-        id: "visualizer",
-        label: "시각화",
-        description: "Graph metrics",
-        icon: Activity,
+        id: "ins",
+        label: "관성항법",
+        description: "Inertial Navigation",
+        icon: NavigationIcon,
     },
 ];
 
@@ -55,8 +55,8 @@ function App() {
             return <ConnectionIndex/>;
         }
 
-        if (activeTab.id === "visualizer") {
-            return <VisualizerGraph/>;
+        if (activeTab.id === "ins") {
+            return <Ins/>;
         }
 
         return <Integral/>;
