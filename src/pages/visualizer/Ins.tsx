@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {motion} from "framer-motion";
-import {Compass, LocateFixed, Play, RotateCcw, RotateCw} from "lucide-react";
+import {Compass, LocateFixed, Play, RotateCcw, RotateCw, Square} from "lucide-react";
 
 import {Button} from "@/components/ui/button.tsx";
 import serial from "@/core/Serial.ts";
@@ -31,7 +31,6 @@ type RawNavigationSample = {
     timestamp: number;
 };
 
-const STOP_ACCELERATION_THRESHOLD = 0.3;
 const MAX_NAVIGATION_SAMPLES = 900;
 const MAP_SIZE = 1000;
 const MAP_CENTER = MAP_SIZE / 2;
@@ -123,7 +122,6 @@ export function Ins() {
             }
 
             const timeSeconds = (receivedAt - movementStartAtRef.current) / 1000;
-            const magnitude = getVectorMagnitude(acceleration);
             const lastSampleAt = lastSampleAtRef.current;
             const dt = lastSampleAt === null ? 0 : Math.max(0, (receivedAt - lastSampleAt) / 1000);
 
@@ -138,13 +136,6 @@ export function Ins() {
                     timestamp: receivedAt,
                 },
             ].slice(-MAX_NAVIGATION_SAMPLES));
-
-            if (magnitude < STOP_ACCELERATION_THRESHOLD && lastSampleAt !== null) {
-                isMeasurementStoppedRef.current = true;
-                setPhase("completed");
-                setStatusLabel("측정 완료");
-                setLastResponse(`AUTO STOP:ACC_MAG:${magnitude.toFixed(4)}`);
-            }
         });
     }, [applyStatusLine]);
 
@@ -207,6 +198,23 @@ export function Ins() {
         }
     }
 
+    async function stopMeasurement() {
+        if (isMeasurementStoppedRef.current) {
+            return;
+        }
+
+        isMeasurementStoppedRef.current = true;
+        setPhase("completed");
+        setStatusLabel("측정 완료");
+        setLastResponse("STOP REQUESTED");
+
+        try {
+            await serial.writeLine("STOP");
+        } catch {
+            setLastResponse("STOP WRITE FAILED");
+        }
+    }
+
     const samples = useMemo(
         () => createNavigationSamples(rawSamples, planeRotationDegrees),
         [rawSamples, planeRotationDegrees],
@@ -218,6 +226,7 @@ export function Ins() {
     const gridMeters = getGridMeters(mapScale);
     const isAligning = phase === "aligning";
     const isStartDisabled = phase !== "standby";
+    const isStopDisabled = phase !== "starting" && phase !== "moving";
     const isRotationDisabled = phase === "aligning";
 
     function changePlaneRotation(nextDegrees: number) {
@@ -240,10 +249,10 @@ export function Ins() {
             >
                 <div className="grid gap-4 md:grid-cols-2">
                     <StatusCell label="항법 상태" value={statusLabel}/>
-                    <StatusCell label="위치" value={`X ${formatMetric(currentPosition.x)} / Y ${formatMetric(currentPosition.y)} m`}/>
+                    <MetricBlock label="경로 길이" value={`${formatMetric(pathLength)} m`}/>
                 </div>
 
-                <div className="grid items-center gap-3 sm:grid-cols-2 xl:w-72">
+                <div className="grid items-center gap-3 sm:grid-cols-3 xl:w-96">
                     <Button
                         className="h-11 bg-white text-black transition-colors duration-200 hover:bg-white/90"
                         disabled={isAligning}
@@ -260,6 +269,15 @@ export function Ins() {
                     >
                         <Play className="size-4"/>
                         시작
+                    </Button>
+                    <Button
+                        className="h-11 border-red-400/30 bg-red-500/10 text-red-200 transition-colors duration-200 hover:bg-red-500 hover:text-white"
+                        disabled={isStopDisabled}
+                        variant="outline"
+                        onClick={stopMeasurement}
+                    >
+                        <Square className="size-4"/>
+                        정지
                     </Button>
                 </div>
             </motion.div>
@@ -285,16 +303,16 @@ export function Ins() {
                     </div>
                 </div>
 
-                <aside className="grid min-h-0 content-start gap-4 border border-white/10 bg-white/3 p-5">
+                <aside className="grid min-h-0 content-start gap-4 border border-white/10 bg-white/3 p-5 overflow-y-auto">
                     <h2 className="text-base font-semibold text-white">실시간 항법 값</h2>
                     <PlaneRotationControl
                         disabled={isRotationDisabled}
                         value={planeRotationDegrees}
                         onChange={changePlaneRotation}
                     />
+                    <MetricBlock label="경로 길이" value={`${formatMetric(pathLength)} m`}/>
                     <MetricBlock label="위치 X" value={`${formatMetric(currentPosition.x)} m`}/>
                     <MetricBlock label="위치 Y" value={`${formatMetric(currentPosition.y)} m`}/>
-                    <MetricBlock label="경로 길이" value={`${formatMetric(pathLength)} m`}/>
                     <MetricBlock label="수집 샘플" value={`${samples.length}`}/>
                     <p className="border-t border-white/10 pt-4 text-sm text-white/45">
                         {lastResponse}
@@ -548,10 +566,6 @@ function parseAcceleration(line: string): Vector3Value | null {
         y: values[1],
         z: values[2],
     };
-}
-
-function getVectorMagnitude(vector: Vector3Value) {
-    return Math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
 }
 
 function rotateVector2(vector: Vector2Value, degrees: number): Vector2Value {

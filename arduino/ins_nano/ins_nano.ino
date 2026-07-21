@@ -1,6 +1,6 @@
 #include <Wire.h>
 #include <MPU6050_light.h>
-#define DEVICE_NAME "SENS-INS-플루토늄"
+#define DEVICE_NAME "SENS-INS-헬륨"
 
 /* 장비마다 고유한 이름을 붙입니다. 이름은 다음을 사용합니다. */
 /*
@@ -191,8 +191,9 @@ void handleMeasurement() {
     Serial.print("ACC:");
     Serial.print(aX, 4); Serial.print(',');
     Serial.print(aY, 4); Serial.print(',');
-    Serial.print(aZ, 4);
+    Serial.println(aZ, 4);
     Serial.println("/ROT:0,0,0");
+
     //Serial.print(rX, 4); Serial.print(',');
     //Serial.print(rY, 4); Serial.print(',');
     //Serial.println(rZ, 4);

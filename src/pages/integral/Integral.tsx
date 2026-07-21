@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from "react";
 import type {PointerEvent as ReactPointerEvent} from "react";
 import {motion} from "framer-motion";
-import {Compass, Play} from "lucide-react";
+import {Compass, Play, Square} from "lucide-react";
 
 import {Button} from "@/components/ui/button.tsx";
 import serial from "@/core/Serial.ts";
@@ -59,7 +59,6 @@ type GraphHoverState = {
 };
 
 const MAX_SAMPLES = 360;
-const STOP_ACCELERATION_THRESHOLD = 0.3;
 const INTEGRATION_SAMPLE_RATE = 200;
 const INTEGRATION_DT = 1 / INTEGRATION_SAMPLE_RATE;
 const GRAPH_WIDTH = 420;
@@ -159,7 +158,6 @@ export function Integral() {
 
             if (acceleration && movementStartAtRef.current !== null && !isMeasurementStoppedRef.current) {
                 const timeSeconds = (receivedAt - movementStartAtRef.current) / 1000;
-                const magnitude = getVectorMagnitude(acceleration);
 
                 setAccelerationSamples((samples) => [
                     ...samples,
@@ -169,13 +167,6 @@ export function Integral() {
                         value: acceleration,
                     },
                 ].slice(-MAX_SAMPLES));
-
-                if (magnitude < STOP_ACCELERATION_THRESHOLD) {
-                    isMeasurementStoppedRef.current = true;
-                    setPhase("completed");
-                    setStatusLabel("측정 완료");
-                    setLastResponse(`AUTO STOP:ACC_MAG:${magnitude.toFixed(4)}`);
-                }
             }
         });
     }, []);
@@ -254,6 +245,23 @@ export function Integral() {
         }
     }
 
+    async function stopMeasurement() {
+        if (isMeasurementStoppedRef.current) {
+            return;
+        }
+
+        isMeasurementStoppedRef.current = true;
+        setPhase("completed");
+        setStatusLabel("측정 완료");
+        setLastResponse("STOP REQUESTED");
+
+        try {
+            await serial.writeLine("STOP");
+        } catch {
+            setLastResponse("STOP WRITE FAILED");
+        }
+    }
+
     const accelerationSeries = createSeries(accelerationSamples.map((sample) => sample.value));
     const timeValues = accelerationSamples.map((sample) => sample.timeSeconds);
     const graphMaxTime = getGraphMaxTime(timeValues);
@@ -266,6 +274,7 @@ export function Integral() {
     const latestPosition = integratedMotion.position.at(-1)?.value ?? 0;
     const isAligning = phase === "aligning";
     const isStartDisabled = phase !== "standby";
+    const isStopDisabled = phase !== "starting" && phase !== "moving";
 
     function changeSelectedAxis(axis: AxisKey) {
         setSelectedAxis(axis);
@@ -354,7 +363,7 @@ export function Integral() {
                     <AxisSelector selectedAxis={selectedAxis} onChange={changeSelectedAxis}/>
                 </div>
 
-                <div className="grid gap-3 items-center sm:grid-cols-2 lg:w-72">
+                <div className="grid gap-3 items-center sm:grid-cols-3 lg:w-96">
                     <Button
                         className="h-11 bg-white text-black transition-colors duration-200 hover:bg-white/90"
                         disabled={isAligning}
@@ -371,6 +380,15 @@ export function Integral() {
                     >
                         <Play className="size-4"/>
                         시작
+                    </Button>
+                    <Button
+                        className="h-11 border-red-400/30 bg-red-500/10 text-red-200 transition-colors duration-200 hover:bg-red-500 hover:text-white"
+                        disabled={isStopDisabled}
+                        variant="outline"
+                        onClick={stopMeasurement}
+                    >
+                        <Square className="size-4"/>
+                        정지
                     </Button>
                 </div>
             </motion.div>
@@ -1089,10 +1107,6 @@ function getAxisColor(axis: AxisKey) {
 
 function clamp(value: number, min: number, max: number) {
     return Math.min(Math.max(value, min), max);
-}
-
-function getVectorMagnitude(vector: Vector3Value) {
-    return Math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z);
 }
 
 function parseAcceleration(line: string): Vector3Value | null {
