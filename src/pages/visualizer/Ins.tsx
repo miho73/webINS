@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import type {PointerEvent as ReactPointerEvent} from "react";
 import {motion} from "framer-motion";
 import {Compass, LocateFixed, Play, RotateCcw, RotateCw, Square} from "lucide-react";
 
@@ -31,11 +32,18 @@ type RawNavigationSample = {
     timestamp: number;
 };
 
+type PathHoverPoint = {
+    distance: number;
+    viewX: number;
+    viewY: number;
+};
+
 const MAX_NAVIGATION_SAMPLES = 900;
 const MAP_SIZE = 1000;
 const MAP_CENTER = MAP_SIZE / 2;
 const MAP_PADDING_RATIO = 0.42;
 const DEFAULT_GRID_METERS = 0.05;
+const HOVER_HIT_RADIUS = 40;
 
 export function Ins() {
     const [phase, setPhase] = useState<InsPhase>("idle");
@@ -226,7 +234,7 @@ export function Ins() {
     const gridMeters = getGridMeters(mapScale);
     const isAligning = phase === "aligning";
     const isStartDisabled = phase !== "standby";
-    const isStopDisabled = phase !== "starting" && phase !== "moving";
+    const isMeasuring = phase === "starting" || phase === "moving";
     const isRotationDisabled = phase === "aligning";
 
     function changePlaneRotation(nextDegrees: number) {
@@ -252,7 +260,7 @@ export function Ins() {
                     <MetricBlock label="경로 길이" value={`${formatMetric(pathLength)} m`}/>
                 </div>
 
-                <div className="grid items-center gap-3 sm:grid-cols-3 xl:w-96">
+                <div className="grid items-center gap-3 sm:grid-cols-2 xl:w-72">
                     <Button
                         className="h-11 bg-white text-black transition-colors duration-200 hover:bg-white/90"
                         disabled={isAligning}
@@ -261,24 +269,26 @@ export function Ins() {
                         <Compass className="size-4"/>
                         {isAligning ? "정렬중" : "정렬"}
                     </Button>
-                    <Button
-                        className="h-11 border-white/20 bg-white/5 text-white transition-colors duration-200 hover:bg-white hover:text-black"
-                        disabled={isStartDisabled}
-                        variant="outline"
-                        onClick={startMeasurement}
-                    >
-                        <Play className="size-4"/>
-                        시작
-                    </Button>
-                    <Button
-                        className="h-11 border-red-400/30 bg-red-500/10 text-red-200 transition-colors duration-200 hover:bg-red-500 hover:text-white"
-                        disabled={isStopDisabled}
-                        variant="outline"
-                        onClick={stopMeasurement}
-                    >
-                        <Square className="size-4"/>
-                        정지
-                    </Button>
+                    {isMeasuring ? (
+                        <Button
+                            className="h-11 border-red-400/30 bg-red-500/10 text-red-200 transition-colors duration-200 hover:bg-red-500 hover:text-white"
+                            variant="outline"
+                            onClick={stopMeasurement}
+                        >
+                            <Square className="size-4"/>
+                            정지
+                        </Button>
+                    ) : (
+                        <Button
+                            className="h-11 border-white/20 bg-white/5 text-white transition-colors duration-200 hover:bg-white hover:text-black"
+                            disabled={isStartDisabled}
+                            variant="outline"
+                            onClick={startMeasurement}
+                        >
+                            <Play className="size-4"/>
+                            시작
+                        </Button>
+                    )}
                 </div>
             </motion.div>
 
@@ -334,17 +344,62 @@ function NavigationMap({
     samples: NavigationSample[];
     scale: number;
 }) {
-    const pathPoints = samples
-        .map((sample) => mapToViewBox(sample.position, scale))
-        .map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    const [hoverPoint, setHoverPoint] = useState<PathHoverPoint | null>(null);
+    const pathViewPoints = samples.map((sample) => {
+        const view = mapToViewBox(sample.position, scale);
+
+        return {
+            distance: Math.hypot(sample.position.x, sample.position.y),
+            viewX: view.x,
+            viewY: view.y,
+        };
+    });
+    const pathPoints = pathViewPoints
+        .map((point) => `${point.viewX.toFixed(2)},${point.viewY.toFixed(2)}`)
         .join(" ");
     const currentPoint = mapToViewBox(samples.at(-1)?.position ?? {x: 0, y: 0}, scale);
     const currentPosition = samples.at(-1)?.position ?? {x: 0, y: 0};
     const isCompleted = phase === "completed" && samples.length > 0;
     const gridLines = createGridLines(scale);
 
+    function updateHoverPoint(event: ReactPointerEvent<SVGSVGElement>) {
+        const svg = svgRef.current;
+        const screenCTM = svg?.getScreenCTM();
+
+        if (!svg || !screenCTM || pathViewPoints.length === 0) {
+            setHoverPoint(null);
+            return;
+        }
+
+        const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(screenCTM.inverse());
+        let nearest: PathHoverPoint | null = null;
+        let nearestDistanceSq = HOVER_HIT_RADIUS * HOVER_HIT_RADIUS;
+
+        for (const point of pathViewPoints) {
+            const dx = point.viewX - cursor.x;
+            const dy = point.viewY - cursor.y;
+            const distanceSq = dx * dx + dy * dy;
+
+            if (distanceSq <= nearestDistanceSq) {
+                nearestDistanceSq = distanceSq;
+                nearest = point;
+            }
+        }
+
+        setHoverPoint(nearest);
+    }
+
     return (
-        <svg className="size-full" role="img" viewBox={`0 0 ${MAP_SIZE} ${MAP_SIZE}`} preserveAspectRatio="xMidYMid meet">
+        <svg
+            ref={svgRef}
+            className="size-full"
+            role="img"
+            viewBox={`0 0 ${MAP_SIZE} ${MAP_SIZE}`}
+            preserveAspectRatio="xMidYMid meet"
+            onPointerMove={updateHoverPoint}
+            onPointerLeave={() => setHoverPoint(null)}
+        >
             <rect width={MAP_SIZE} height={MAP_SIZE} fill="black"/>
             {gridLines.map((line) => (
                 <g key={line.key}>
@@ -420,6 +475,26 @@ function NavigationMap({
                     <text x="12" y="37" fill="white" fontSize="16" fontWeight="700">
                         X {formatMetric(currentPosition.x)} m / Y {formatMetric(currentPosition.y)} m
                     </text>
+                </g>
+            ) : null}
+            {hoverPoint ? (
+                <g pointerEvents="none">
+                    <line
+                        x1={MAP_CENTER}
+                        y1={MAP_CENTER}
+                        x2={hoverPoint.viewX}
+                        y2={hoverPoint.viewY}
+                        stroke="rgba(250,204,21,0.75)"
+                        strokeDasharray="6 6"
+                        strokeWidth="2"
+                        vectorEffect="non-scaling-stroke"
+                    />
+                    <circle cx={hoverPoint.viewX} cy={hoverPoint.viewY} r="7" fill="#facc15" stroke="black" strokeWidth="1.5"/>
+                    <g transform={`translate(${Math.min(hoverPoint.viewX + 20, MAP_SIZE - 208)} ${Math.max(hoverPoint.viewY - 54, 16)})`}>
+                        <rect width="196" height="44" fill="rgba(0,0,0,0.85)" stroke="rgba(250,204,21,0.4)"/>
+                        <text x="12" y="18" fill="rgba(255,255,255,0.55)" fontSize="12" fontWeight="700">원점 거리</text>
+                        <text x="12" y="35" fill="#facc15" fontSize="16" fontWeight="700">{formatMetric(hoverPoint.distance)} m</text>
+                    </g>
                 </g>
             ) : null}
             <text x={MAP_SIZE - 58} y={MAP_CENTER - 14} fill="#f87171" fontSize="24" fontWeight="700">+X</text>

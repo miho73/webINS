@@ -83,7 +83,7 @@ export function Integral() {
     const [gravity, setGravity] = useState<number | null>(null);
     const [movementStartAt, setMovementStartAt] = useState<number | null>(null);
     const [accelerationSamples, setAccelerationSamples] = useState<AccelerationSample[]>([]);
-    const [selectedAxis, setSelectedAxis] = useState<AxisKey>("x");
+    const selectedAxis: AxisKey = "y";
     const [accelerationPaintSelection, setAccelerationPaintSelection] = useState<PaintSelection | null>(null);
     const [velocityPaintSelection, setVelocityPaintSelection] = useState<PaintSelection | null>(null);
     const waitingForAlignmentStandbyRef = useRef(false);
@@ -262,7 +262,7 @@ export function Integral() {
         }
     }
 
-    const accelerationSeries = createSeries(accelerationSamples.map((sample) => sample.value));
+    const accelerationSeries = createScalarSeries(selectedAxis, accelerationSamples.map((sample) => sample.value[selectedAxis]));
     const timeValues = accelerationSamples.map((sample) => sample.timeSeconds);
     const graphMaxTime = getGraphMaxTime(timeValues);
     const integratedMotion = createIntegratedMotion(accelerationPaintSelection, velocityPaintSelection);
@@ -274,13 +274,7 @@ export function Integral() {
     const latestPosition = integratedMotion.position.at(-1)?.value ?? 0;
     const isAligning = phase === "aligning";
     const isStartDisabled = phase !== "standby";
-    const isStopDisabled = phase !== "starting" && phase !== "moving";
-
-    function changeSelectedAxis(axis: AxisKey) {
-        setSelectedAxis(axis);
-        setAccelerationPaintSelection(null);
-        setVelocityPaintSelection(null);
-    }
+    const isMeasuring = phase === "starting" || phase === "moving";
 
     function startAccelerationPaint(point: ScalarSample) {
         isAccelerationPaintingRef.current = true;
@@ -356,14 +350,13 @@ export function Integral() {
                 animate={{opacity: 1, y: 0}}
                 transition={{duration: 0.36, ease: "easeOut"}}
             >
-                <div className="grid gap-4 sm:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-3">
                     <StatusCell label="정렬 상태" value={statusLabel}/>
                     <StatusCell label="중력가속도" value={gravity === null ? "대기" : `${gravity.toFixed(4)} m/s²`}/>
                     <StatusCell label="기준 시각" value={movementStartAt === null ? "MOVING 대기" : "t = 0.000 s"}/>
-                    <AxisSelector selectedAxis={selectedAxis} onChange={changeSelectedAxis}/>
                 </div>
 
-                <div className="grid gap-3 items-center sm:grid-cols-3 lg:w-96">
+                <div className="grid gap-3 items-center sm:grid-cols-2 lg:w-72">
                     <Button
                         className="h-11 bg-white text-black transition-colors duration-200 hover:bg-white/90"
                         disabled={isAligning}
@@ -372,24 +365,26 @@ export function Integral() {
                         <Compass className="size-4"/>
                         {isAligning ? "정렬중" : "정렬"}
                     </Button>
-                    <Button
-                        className="h-11 border-white/20 bg-white/5 text-white transition-colors duration-200 hover:bg-white hover:text-black"
-                        disabled={isStartDisabled}
-                        variant="outline"
-                        onClick={startMeasurement}
-                    >
-                        <Play className="size-4"/>
-                        시작
-                    </Button>
-                    <Button
-                        className="h-11 border-red-400/30 bg-red-500/10 text-red-200 transition-colors duration-200 hover:bg-red-500 hover:text-white"
-                        disabled={isStopDisabled}
-                        variant="outline"
-                        onClick={stopMeasurement}
-                    >
-                        <Square className="size-4"/>
-                        정지
-                    </Button>
+                    {isMeasuring ? (
+                        <Button
+                            className="h-11 border-red-400/30 bg-red-500/10 text-red-200 transition-colors duration-200 hover:bg-red-500 hover:text-white"
+                            variant="outline"
+                            onClick={stopMeasurement}
+                        >
+                            <Square className="size-4"/>
+                            정지
+                        </Button>
+                    ) : (
+                        <Button
+                            className="h-11 border-white/20 bg-white/5 text-white transition-colors duration-200 hover:bg-white hover:text-black"
+                            disabled={isStartDisabled}
+                            variant="outline"
+                            onClick={startMeasurement}
+                        >
+                            <Play className="size-4"/>
+                            시작
+                        </Button>
+                    )}
                 </div>
             </motion.div>
 
@@ -452,35 +447,6 @@ function StatusCell({label, value}: {label: string; value: string}) {
         <div className="border border-white/10 bg-black/40 px-4 py-3">
             <p className="text-xs font-semibold text-white/40 uppercase">{label}</p>
             <p className="mt-2 truncate text-sm font-semibold text-white">{value}</p>
-        </div>
-    );
-}
-
-function AxisSelector({selectedAxis, onChange}: {selectedAxis: AxisKey; onChange(axis: AxisKey): void}) {
-    return (
-        <div className="border border-white/10 bg-black/40 px-4 py-3">
-            <p className="text-xs font-semibold text-white/40 uppercase">적분 축</p>
-            <div className="mt-2 grid grid-cols-3 gap-2">
-                {AXIS_OPTIONS.map((axis) => {
-                    const isActive = selectedAxis === axis.key;
-
-                    return (
-                        <button
-                            key={axis.key}
-                            className={[
-                                "h-8 border text-sm font-semibold transition-colors duration-200",
-                                isActive
-                                    ? "border-white bg-white text-black"
-                                    : "border-white/10 bg-white/5 text-white hover:bg-white/10",
-                            ].join(" ")}
-                            type="button"
-                            onClick={() => onChange(axis.key)}
-                        >
-                            {axis.label}
-                        </button>
-                    );
-                })}
-            </div>
         </div>
     );
 }
@@ -633,9 +599,6 @@ function GraphPanel({
                     ) : null}
                 </svg>
                 <GraphAxisOverlay maxAbs={maxAbs} maxTime={maxTime}/>
-                {hoverState ? (
-                    <GraphHoverTooltip hoverState={hoverState} unit={unit}/>
-                ) : null}
 
                 {!hasData && (
                     <div className="absolute inset-0 grid place-items-center">
@@ -782,36 +745,6 @@ function GraphHoverGuide({hoverState, maxAbs}: {hoverState: GraphHoverState; max
     );
 }
 
-function GraphHoverTooltip({hoverState, unit}: {hoverState: GraphHoverState; unit: string}) {
-    const isRightSide = hoverState.x > GRAPH_WIDTH * 0.62;
-
-    return (
-        <div
-            className="pointer-events-none absolute z-10 min-w-36 border border-white/15 bg-black/90 px-3 py-2 text-xs text-white shadow-lg"
-            style={{
-                left: `${(hoverState.x / GRAPH_WIDTH) * 100}%`,
-                top: `${(hoverState.y / GRAPH_HEIGHT) * 100}%`,
-                transform: isRightSide ? "translate(-105%, -50%)" : "translate(8%, -50%)",
-            }}
-        >
-            <p className="font-semibold text-white">t = {formatHoverNumber(hoverState.timeSeconds)} s</p>
-            <div className="mt-2 grid gap-1">
-                {hoverState.values.map((item) => (
-                    <p key={item.label} className="flex items-center justify-between gap-3 text-white/70">
-                        <span className="flex items-center gap-1">
-                            <span className="size-2" style={{backgroundColor: item.color}}/>
-                            {item.label}
-                        </span>
-                        <span className="font-semibold text-white">
-                            {formatHoverNumber(item.value)} {unit}
-                        </span>
-                    </p>
-                ))}
-            </div>
-        </div>
-    );
-}
-
 function GraphSelectionArea({
     maxAbs,
     maxTime,
@@ -923,15 +856,6 @@ function formatCompactNumber(value: number) {
     }).format(normalized);
 }
 
-function formatHoverNumber(value: number) {
-    const normalized = Math.abs(value) < 0.0001 ? 0 : value;
-
-    return new Intl.NumberFormat("en-US", {
-        maximumFractionDigits: Math.abs(normalized) < 1 ? 4 : 3,
-        minimumFractionDigits: 0,
-    }).format(normalized);
-}
-
 function getNiceStep(rawStep: number) {
     const exponent = Math.floor(Math.log10(rawStep));
     const base = 10 ** exponent;
@@ -950,26 +874,6 @@ function getNiceStep(rawStep: number) {
     }
 
     return 10 * base;
-}
-
-function createSeries(values: Vector3Value[]): GraphSeries[] {
-    return [
-        {
-            label: "X",
-            color: "#f87171",
-            values: values.map((value) => value.x),
-        },
-        {
-            label: "Y",
-            color: "#86efac",
-            values: values.map((value) => value.y),
-        },
-        {
-            label: "Z",
-            color: "#60a5fa",
-            values: values.map((value) => value.z),
-        },
-    ];
 }
 
 function createScalarSeries(axis: AxisKey, values: number[]): GraphSeries[] {
